@@ -11,7 +11,7 @@ import { Logger } from '../utils/logger.js';
 
 const logger = new Logger('file-writer');
 
-const BACKUP_DIR = join(homedir(), '.ollama-agent', 'backups');
+const BACKUP_DIR = join(homedir(), '.devlama', 'backups');
 
 export class FileWriter {
   /**

@@ -1,5 +1,5 @@
 /**
- * prompt.js — Interactive REPL (Read-Eval-Print Loop) for OllamaAgent CLI.
+ * prompt.js — Interactive REPL (Read-Eval-Print Loop) for DevLama CLI.
  * Handles user input, command routing, and streaming AI responses.
  */
 
@@ -17,7 +17,7 @@ import { Logger } from '../utils/logger.js';
 const logger = new Logger('prompt');
 
 /**
- * Starts the interactive OllamaAgent CLI session.
+ * Starts the interactive DevLama CLI session.
  * @param {import('../utils/config.js').ConfigManager} config
  * @param {{ running: boolean, host: string, version: string | null }} serverInfo
  */

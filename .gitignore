@@ -6,4 +6,5 @@ dist/
 .env.*
 *.bak
 .ollama-agent/
-*.md
+ROADMAP.MD
+roadmap.md

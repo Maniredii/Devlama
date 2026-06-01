@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * OllamaAgent CLI — Entry Point
+ * DevLama CLI — Entry Point
  * Bootstraps the CLI application and hands off to the commander program.
  */
 

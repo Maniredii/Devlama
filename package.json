@@ -1,23 +1,23 @@
 {
-  "name": "ollama-agent-cli",
+  "name": "devlama-cli",
   "version": "1.0.0",
   "description": "Local AI Coding Agent powered by Ollama — terminal-based AI assistant that reads, writes, edits, and manages your projects.",
   "type": "module",
   "main": "src/index.js",
   "bin": {
-    "oai": "bin/ollama-agent.js",
-    "ollama-agent": "bin/ollama-agent.js"
+    "oai": "bin/devlama.js",
+    "devlama": "bin/devlama.js"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "scripts": {
-    "start": "node bin/ollama-agent.js",
-    "dev": "node --watch bin/ollama-agent.js",
-    "test": "node --experimental-vm-modules node_modules/.bin/jest",
-    "test:unit": "node --experimental-vm-modules node_modules/.bin/jest tests/unit",
-    "test:integration": "node --experimental-vm-modules node_modules/.bin/jest tests/integration",
-    "test:coverage": "node --experimental-vm-modules node_modules/.bin/jest --coverage",
+    "start": "node bin/devlama.js",
+    "dev": "node --watch bin/devlama.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/unit",
+    "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/integration",
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
     "lint": "eslint src tests --ext .js",
     "lint:fix": "eslint src tests --ext .js --fix",
     "format": "prettier --write .",
@@ -35,7 +35,7 @@
     "local-ai",
     "developer-tools"
   ],
-  "author": "OllamaAgent Contributors",
+  "author": "DevLama Contributors",
   "license": "MIT",
   "dependencies": {
     "chalk": "^5.3.0",
@@ -60,10 +60,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/ollama-agent-cli.git"
+    "url": "https://github.com/your-org/devlama-cli.git"
   },
   "bugs": {
-    "url": "https://github.com/your-org/ollama-agent-cli/issues"
+    "url": "https://github.com/your-org/devlama-cli/issues"
   },
-  "homepage": "https://github.com/your-org/ollama-agent-cli#readme"
+  "homepage": "https://github.com/your-org/devlama-cli#readme"
 }

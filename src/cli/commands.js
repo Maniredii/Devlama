@@ -25,7 +25,7 @@ export const program = new Command();
 
 program
   .name('oai')
-  .description('OllamaAgent CLI — Local AI Coding Agent powered by Ollama')
+  .description('DevLama CLI — Local AI Coding Agent powered by Ollama')
   .version(pkg.version, '-v, --version', 'Print version')
   .option('--model <name>', 'Specify the Ollama model to use')
   .option('--host <url>', 'Ollama host URL (default: http://localhost:11434)')

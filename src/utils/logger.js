@@ -1,5 +1,5 @@
 /**
- * Logger — Leveled, colored logger for OllamaAgent CLI.
+ * Logger — Leveled, colored logger for DevLama CLI.
  * Supports DEBUG / INFO / WARN / ERROR levels with chalk colors.
  */
 

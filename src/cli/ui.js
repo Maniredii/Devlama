@@ -173,7 +173,7 @@ export function printBox(title, lines, color = chalk.cyan) {
 // ─── Help Display ─────────────────────────────────────────────────────────────
 
 export function printHelp() {
-  console.log(chalk.bold.cyan('\n📖 OllamaAgent CLI — Available Commands\n'));
+  console.log(chalk.bold.cyan('\n📖 DevLama CLI — Available Commands\n'));
 
   const commands = [
     ['/help', 'Show this help message'],

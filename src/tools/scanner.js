@@ -180,7 +180,7 @@ export class ProjectScanner {
     const files = await this._buildFileTree(projectPath);
 
     for (const f of files) {
-      if (f.isDir) continue;
+      if (f.isDir) {continue;}
       const lang = LANG_EXTENSIONS[f.ext];
       if (lang) {
         counts[lang] = (counts[lang] ?? 0) + 1;

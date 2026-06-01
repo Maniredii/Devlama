@@ -1,5 +1,5 @@
 /**
- * helpers.js — Shared utility functions for OllamaAgent CLI.
+ * helpers.js — Shared utility functions for DevLama CLI.
  */
 
 import { createHash } from 'crypto';

@@ -1,6 +1,6 @@
 /**
- * ConfigManager — Manages user configuration for OllamaAgent CLI.
- * Config is stored at ~/.ollama-agent/config.json
+ * ConfigManager — Manages user configuration for DevLama CLI.
+ * Config is stored at ~/.devlama/config.json
  */
 
 import { homedir } from 'os';
@@ -24,7 +24,7 @@ const DEFAULT_CONFIG = {
 
 export class ConfigManager {
   constructor() {
-    this.configDir = join(homedir(), '.ollama-agent');
+    this.configDir = join(homedir(), '.devlama');
     this.configPath = join(this.configDir, 'config.json');
     this._config = null;
   }
