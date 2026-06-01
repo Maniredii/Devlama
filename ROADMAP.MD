@@ -8,6 +8,7 @@ Tagline: Local AI Coding Agent Powered by Ollama
 Goal:
 Build a terminal-based AI coding assistant that works with any Ollama model and helps developers create, edit, debug, and manage projects directly from the terminal.
 
+
 Phase 1: Research & Planning (1-2 Days)
 Objectives
 Understand Ollama API
