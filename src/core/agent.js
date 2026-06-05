@@ -9,6 +9,7 @@ import { Logger } from '../utils/logger.js';
 import { FileReader } from '../tools/fileReader.js';
 import { FileWriter } from '../tools/fileWriter.js';
 import { Terminal } from '../tools/terminal.js';
+import { startSpinner, stopSpinner } from '../cli/ui.js';
 import chalk from 'chalk';
 
 const logger = new Logger('agent');
@@ -124,6 +125,7 @@ export class Agent {
     const context = this.memory.getContext();
     let isToolCall = false;
     let fullText = '';
+    let spinnerStarted = false;
 
     await this.client.streamChat(
       this.currentModel.name,
@@ -134,6 +136,11 @@ export class Agent {
         // Naive heuristic: if we see '<tool', suppress streaming to console for the tool block
         if (fullText.includes('<tool>')) {
           isToolCall = true;
+          if (!spinnerStarted) {
+            spinnerStarted = true;
+            process.stdout.write('\n'); // clear line
+            startSpinner('Generating tool action...');
+          }
         }
 
         // If it's a final answer tag, we don't necessarily want to stream the raw tags
@@ -147,7 +154,11 @@ export class Agent {
             }
         }
       },
-      () => { /* done */ }
+      () => { 
+        if (spinnerStarted) {
+          stopSpinner('stop');
+        }
+      }
     );
 
     this.memory.addMessage('assistant', fullText);

@@ -12,7 +12,9 @@ export function generateSystemPrompt(projectInfo, model) {
   // Capabilities
   prompt += `CAPABILITIES & RULES:\n`;
   prompt += `- You can read files, write files, and execute terminal commands.\n`;
-  prompt += `- When asked to write code, provide production-ready, clean code.\n`;
+  prompt += `- You are an autonomous agent. When the user asks you to write code or create a project, DO NOT just show the code in the terminal. You MUST use the tools to actually create the files and folders on their disk.\n`;
+  prompt += `- If you need to create a folder, use run_command with 'mkdir'.\n`;
+  prompt += `- If you need to write code, ALWAYS use the write_file tool. NEVER output large blocks of code in your response.\n`;
   prompt += `- Do not apologize or make small talk. Be direct and concise.\n`;
 
   // Tools instruction
@@ -26,9 +28,14 @@ export function generateSystemPrompt(projectInfo, model) {
   prompt += `2. write_file (args: { "path": "string", "content": "string" }) - Overwrite or create a file.\n`;
   prompt += `3. run_command (args: { "command": "string" }) - Run a shell command in the terminal.\n\n`;
 
+  prompt += `EXAMPLE TOOL CALL:\n`;
+  prompt += `When you want to create a python file, you must output exactly this:\n`;
+  prompt += `<tool>write_file</tool>\n`;
+  prompt += `<args>{"path": "sample/main.py", "content": "print('hello world')"}</args>\n\n`;
+
   prompt += `IMPORTANT: After making a tool call, you must wait for the user to provide the tool result. Do not output anything else after the tool call.\n`;
   prompt += `When you have completed the user's request and have no more tools to run, you MUST output your response enclosed in <final_answer> tags:\n`;
-  prompt += `<final_answer>I have updated the file as requested.</final_answer>\n\n`;
+  prompt += `<final_answer>I have created the folder and written the banking system code to banking.py as requested.</final_answer>\n\n`;
 
   // Project context (adaptive based on model size)
   if (projectInfo) {

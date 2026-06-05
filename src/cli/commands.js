@@ -86,6 +86,37 @@ program
     await startInteractiveSession(config, serverInfo);
   });
 
+program
+  .command('run')
+  .description('Auto-scan the project and run a prompt immediately')
+  .argument('<prompt...>', 'The prompt/task to execute')
+  .option('--model <name>', 'Model to use')
+  .action(async (promptParts, options) => {
+    const { ConfigManager } = await import('../utils/config.js');
+    const { OllamaDetector } = await import('../ollama/detector.js');
+    const { startWithPrompt } = await import('./prompt.js');
+    const { printBanner } = await import('./ui.js');
+
+    printBanner();
+    const config = new ConfigManager();
+    await config.init();
+
+    if (options.model) {
+      await config.set('defaultModel', options.model);
+    }
+
+    const detector = new OllamaDetector(config);
+    const serverInfo = await detector.detect();
+
+    if (!serverInfo.running) {
+      printError('Ollama server not found. Run: ollama serve');
+      process.exit(1);
+    }
+
+    const userPrompt = promptParts.join(' ');
+    await startWithPrompt(config, serverInfo, userPrompt);
+  });
+
 // ─── Slash-Command Dispatcher ─────────────────────────────────────────────────
 
 export class CommandDispatcher {

@@ -10,7 +10,12 @@ import { OllamaClient } from '../ollama/client.js';
 import { Agent } from '../core/agent.js';
 import { SessionManager } from '../core/session.js';
 import { MemoryManager } from '../core/memory.js';
-import { printStatusLine, printToken, endStream, printError, printHelp, getPromptString } from './ui.js';
+import { ProjectScanner } from '../tools/scanner.js';
+import {
+  printToken, endStream,
+  printError, printSuccess, printInfo,
+  getPromptString, startSpinner, stopSpinner, printDivider
+} from './ui.js';
 import { CommandDispatcher } from './commands.js';
 import { Logger } from '../utils/logger.js';
 
@@ -21,7 +26,13 @@ const logger = new Logger('prompt');
  * @param {import('../utils/config.js').ConfigManager} config
  * @param {{ running: boolean, host: string, version: string | null }} serverInfo
  */
-export async function startInteractiveSession(config, serverInfo) {
+/**
+ * Bootstraps common dependencies (client, model, session, memory, agent, dispatcher).
+ * @param {import('../utils/config.js').ConfigManager} config
+ * @param {{ running: boolean, host: string, version: string | null }} serverInfo
+ * @returns {Promise<{ client, modelManager, models, currentModel, session, memory, agent, dispatcher }>}
+ */
+async function bootstrap(config, serverInfo) {
   const client = new OllamaClient(serverInfo.host);
   const modelManager = new ModelManager(client);
 
@@ -48,7 +59,91 @@ export async function startInteractiveSession(config, serverInfo) {
   const agent = new Agent({ client, memory, session, config, currentModel });
   const dispatcher = new CommandDispatcher({ agent, session, memory, config, client, modelManager });
 
-  printStatusLine(currentModel.name, session.projectName);
+  return { client, modelManager, models, currentModel, session, memory, agent, dispatcher };
+}
+
+/**
+ * Auto-scans the current working directory and sets it as the active project.
+ * @param {SessionManager} session
+ */
+async function autoScanProject(session) {
+  const projectPath = process.cwd();
+  const spinner = startSpinner('Scanning project directory...');
+
+  try {
+    const scanner = new ProjectScanner();
+    const info = await scanner.scan(projectPath);
+    stopSpinner('succeed', 'Project scanned');
+
+    session.setProject(projectPath, info);
+
+    console.log(chalk.bold.cyan('\n📁 Project Summary\n'));
+    printDivider();
+    console.log(`  Framework   : ${chalk.green(info.framework ?? 'Unknown')}`);
+    console.log(`  Language    : ${chalk.green(info.language ?? 'Unknown')}`);
+    console.log(`  Pkg Manager : ${chalk.green(info.packageManager ?? 'N/A')}`);
+    console.log(`  Files       : ${chalk.white(info.totalFiles)}`);
+    console.log(`  Directories : ${chalk.white(info.totalDirs)}`);
+    if (info.dependencies?.length > 0) {
+      console.log(`  Key Deps    : ${chalk.gray(info.dependencies.slice(0, 5).join(', '))}`);
+    }
+    printDivider();
+    console.log();
+    printSuccess(`Project set to: ${projectPath}`);
+  } catch (err) {
+    stopSpinner('fail', 'Scan failed');
+    logger.warn('Auto-scan failed, continuing without project context:', err.message);
+    printInfo('Could not auto-scan project. Use /project <path> to set manually.');
+  }
+}
+
+/**
+ * Starts the interactive DevLama CLI session.
+ * Automatically scans the current directory on startup.
+ * @param {import('../utils/config.js').ConfigManager} config
+ * @param {{ running: boolean, host: string, version: string | null }} serverInfo
+ */
+export async function startInteractiveSession(config, serverInfo) {
+  const deps = await bootstrap(config, serverInfo);
+  const currentModel = deps.currentModel;
+
+  // Auto-scan the current working directory
+  await autoScanProject(deps.session);
+
+  enterREPL(config, deps, currentModel);
+}
+
+/**
+ * Starts a session, auto-scans the project, runs a single prompt, then enters the REPL.
+ * This powers the `devlama run "prompt"` and `devlama "prompt"` experience.
+ * @param {import('../utils/config.js').ConfigManager} config
+ * @param {{ running: boolean, host: string, version: string | null }} serverInfo
+ * @param {string} userPrompt
+ */
+export async function startWithPrompt(config, serverInfo, userPrompt) {
+  const deps = await bootstrap(config, serverInfo);
+  const currentModel = deps.currentModel;
+
+  // Auto-scan the current working directory
+  await autoScanProject(deps.session);
+
+  // Run the user's prompt immediately
+  console.log(chalk.gray(`\n▶ Running: ${userPrompt}\n`));
+  await runAgentTurn(userPrompt, deps.agent, config);
+
+  // Drop into the interactive REPL for follow-ups
+  printInfo('Task complete. You can continue chatting or type /exit to quit.\n');
+  enterREPL(config, deps, currentModel);
+}
+
+/**
+ * Enters the interactive REPL loop.
+ * @param {import('../utils/config.js').ConfigManager} config
+ * @param {{ agent, session, memory, dispatcher, models, modelManager }} deps
+ * @param {object} currentModel
+ */
+function enterREPL(config, deps, currentModel) {
+  const { agent, session, memory, dispatcher, models } = deps;
 
   // Setup readline
   const rl = readline.createInterface({
@@ -115,7 +210,12 @@ export async function startInteractiveSession(config, serverInfo) {
     await shutdown(session, rl);
   });
 
-  printHelp();
+  // Show a simple, welcoming message instead of the full help dump
+  console.log(
+    chalk.bold.cyan('\n  Ready! ') +
+    chalk.white('Just type what you need. ') +
+    chalk.gray('(type /help for commands, /exit to quit)\n')
+  );
   prompt();
 }
 

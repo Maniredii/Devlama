@@ -184,20 +184,32 @@ export function pluralize(count, singular, plural) {
  */
 export function parseToolCall(text) {
   const toolMatch = text.match(/<tool>([\s\S]*?)<\/tool>/);
-  const argsMatch = text.match(/<args>([\s\S]*?)<\/args>/);
-
   if (!toolMatch) {
     return null;
   }
-
   const tool = toolMatch[1].trim();
   let args = {};
 
+  // First try to find explicit <args> tags
+  const argsMatch = text.match(/<args>([\s\S]*?)<\/args>/);
   if (argsMatch) {
+    const rawArgs = argsMatch[1].trim();
+    // Sometimes models put ```json inside the tags
+    const cleanArgs = rawArgs.replace(/^```json/i, '').replace(/```$/, '').trim();
     try {
-      args = JSON.parse(argsMatch[1].trim());
+      args = JSON.parse(cleanArgs);
     } catch {
-      args = { raw: argsMatch[1].trim() };
+      args = { raw: cleanArgs };
+    }
+  } else {
+    // Fallback: look for a JSON block right after the tool tag
+    const jsonMatch = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+    if (jsonMatch) {
+      try {
+        args = JSON.parse(jsonMatch[1].trim());
+      } catch {
+        args = { raw: jsonMatch[1].trim() };
+      }
     }
   }
 
