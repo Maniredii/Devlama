@@ -130,6 +130,7 @@ export class CommandDispatcher {
     this.config = deps.config;
     this.client = deps.client;
     this.modelManager = deps.modelManager;
+    this.pluginManager = deps.pluginManager;
   }
 
   /**
@@ -191,6 +192,10 @@ export class CommandDispatcher {
 
       case 'config':
         return this._cmdConfig(args);
+
+      case 'auto':
+        return this._cmdAuto(args);
+
 
       default:
         printError(`Unknown command: /${cmd}. Type /help for available commands.`);
@@ -457,8 +462,7 @@ export class CommandDispatcher {
   }
 
   async _cmdPlugin(args) {
-    const { PluginManager } = await import('../plugins/pluginManager.js');
-    const pm = new PluginManager(this.config);
+    const pm = this.pluginManager;
     const sub = args[0]?.toLowerCase();
 
     switch (sub) {
@@ -526,6 +530,71 @@ export class CommandDispatcher {
     }
     return null;
   }
+
+  async _cmdAuto(args) {
+    const userInput = args.join(' ');
+    if (!userInput) {
+      printError('Usage: /auto <complex task description>');
+      return null;
+    }
+
+    const { Planner } = await import('../core/planner.js');
+    const { startSpinner, stopSpinner, printDivider } = await import('./ui.js');
+    const planner = new Planner(this.client);
+
+    startSpinner('Generating autonomous execution plan...');
+    try {
+      const projectInfo = this.session.projectInfo;
+      // We need a model for the planner. Using currentModel from context, but we don't have it directly in this scope.
+      // Wait, we need to pass model to _cmdAuto, or just use this.agent.currentModel.
+      const plan = await planner.generatePlan(userInput, this.agent.currentModel, projectInfo);
+      stopSpinner('succeed', 'Plan generated');
+
+      console.log(chalk.bold.cyan('\n🤖 Autonomous Plan:\n'));
+      printDivider();
+      plan.forEach((step, index) => {
+        console.log(`  ${chalk.green(index + 1 + '.')} ${chalk.white(step)}`);
+      });
+      printDivider();
+      console.log();
+
+      const confirmed = await this._confirm('Execute this plan autonomously?');
+      if (!confirmed) {
+        printInfo('Autonomous execution cancelled.');
+        return null;
+      }
+
+      // Temporarily set autoApprove for the agent's file writer
+      const originalAutoApprove = this.agent.tools.write_file.autoApprove;
+      this.agent.tools.write_file.autoApprove = true;
+
+      for (let i = 0; i < plan.length; i++) {
+        const step = plan[i];
+        console.log(chalk.bold.yellow(`\n▶ Executing Step ${i + 1}/${plan.length}: `) + chalk.white(step) + '\n');
+        
+        // Pass the step to the agent as a user message
+        const prompt = `Step ${i + 1}/${plan.length} of the autonomous plan: ${step}\nPlease execute this step using your tools. Do not wait for confirmation. Output a final_answer when done with this step.`;
+        
+        // We'll use the streaming runner to give live feedback
+        const { printToken, endStream } = await import('./ui.js');
+        process.stdout.write(chalk.bold.cyan('Agent: '));
+        await this.agent.runStreaming(prompt, (token) => printToken(token));
+        endStream();
+      }
+
+      // Restore original autoApprove
+      this.agent.tools.write_file.autoApprove = originalAutoApprove;
+
+      console.log(chalk.bold.green('\n✅ Autonomous execution complete!\n'));
+      
+    } catch (err) {
+      stopSpinner('fail');
+      printError(`Autonomous execution failed: ${err.message}`);
+    }
+
+    return null;
+  }
+
 
   // ─── Shared Helpers ────────────────────────────────────────────────────────
 

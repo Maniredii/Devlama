@@ -17,6 +17,7 @@ import {
   getPromptString, startSpinner, stopSpinner, printDivider
 } from './ui.js';
 import { CommandDispatcher } from './commands.js';
+import { PluginManager } from '../plugins/pluginManager.js';
 import { Logger } from '../utils/logger.js';
 
 const logger = new Logger('prompt');
@@ -56,10 +57,14 @@ async function bootstrap(config, serverInfo) {
   await session.init();
 
   const memory = new MemoryManager(config, currentModel);
-  const agent = new Agent({ client, memory, session, config, currentModel });
-  const dispatcher = new CommandDispatcher({ agent, session, memory, config, client, modelManager });
+  const pluginManager = new PluginManager(config);
+  const agent = new Agent({ client, memory, session, config, currentModel, pluginManager });
+  const dispatcher = new CommandDispatcher({ agent, session, memory, config, client, modelManager, pluginManager });
 
-  return { client, modelManager, models, currentModel, session, memory, agent, dispatcher };
+  await pluginManager.loadAll({ agent, session, config });
+  agent.reloadPlugins(); // Tell the agent to register custom tools and prompt extensions
+
+  return { client, modelManager, models, currentModel, session, memory, agent, dispatcher, pluginManager };
 }
 
 /**
@@ -143,7 +148,8 @@ export async function startWithPrompt(config, serverInfo, userPrompt) {
  * @param {object} currentModel
  */
 function enterREPL(config, deps, currentModel) {
-  const { agent, session, memory, dispatcher, models } = deps;
+  return new Promise(() => {
+    const { agent, session, memory, dispatcher, models } = deps;
 
   // Setup readline
   const rl = readline.createInterface({
@@ -217,6 +223,7 @@ function enterREPL(config, deps, currentModel) {
     chalk.gray('(type /help for commands, /exit to quit)\n')
   );
   prompt();
+  });
 }
 
 /**
@@ -229,14 +236,30 @@ async function runAgentTurn(userInput, agent, config) {
   console.log(); // spacing
 
   const streamingEnabled = config.get('streamingEnabled') ?? true;
+  
+  // Easter egg: Stick to beat the AI
+  console.log(chalk.gray(`(Press 's' to hit the AI with a stick if it's lagging)`));
+  
+  const onKeypress = (str, key) => {
+    if (key && key.name === 's') {
+      process.stdout.write(chalk.bold.yellow('\n🏏 Ouch! Working faster!\n') + chalk.bold.cyan('Assistant: '));
+    }
+  };
+  
+  // readline automatically emits 'keypress' on process.stdin
+  process.stdin.on('keypress', onKeypress);
 
-  if (streamingEnabled) {
-    process.stdout.write(chalk.bold.cyan('Assistant: '));
-    await agent.runStreaming(userInput, (token) => printToken(token));
-    endStream();
-  } else {
-    const response = await agent.run(userInput);
-    console.log(chalk.bold.cyan('Assistant: ') + chalk.white(response));
+  try {
+    if (streamingEnabled) {
+      process.stdout.write(chalk.bold.cyan('Assistant: '));
+      await agent.runStreaming(userInput, (token) => printToken(token));
+      endStream();
+    } else {
+      const response = await agent.run(userInput);
+      console.log(chalk.bold.cyan('Assistant: ') + chalk.white(response));
+    }
+  } finally {
+    process.stdin.off('keypress', onKeypress);
   }
 
   console.log();

@@ -24,6 +24,7 @@ export class Agent {
     this.session = deps.session;
     this.config = deps.config;
     this.currentModel = deps.currentModel;
+    this.pluginManager = deps.pluginManager;
 
     // Initialize tools
     this.tools = {
@@ -41,8 +42,46 @@ export class Agent {
   }
 
   _initializeSystemPrompt() {
-    const prompt = generateSystemPrompt(this.session.projectInfo, this.currentModel);
+    let prompt = generateSystemPrompt(this.session.projectInfo, this.currentModel);
+    
+    if (this.pluginManager) {
+      const extensions = this.pluginManager.getSystemPromptExtensions();
+      if (extensions) {
+        prompt += '\n' + extensions;
+      }
+    }
+
+    // Also inject custom tool definitions into the prompt if there are any
+    const customTools = Object.values(this.tools).filter(t => t.execute);
+    if (customTools.length > 0) {
+      prompt += '\n\nAVAILABLE CUSTOM TOOLS:\n';
+      customTools.forEach(t => {
+        prompt += `- ${t.name}: ${t.description}\n  Arguments: ${JSON.stringify(t.args)}\n`;
+      });
+    }
+
     this.memory.setSystemPrompt(prompt);
+  }
+
+  /**
+   * Reloads system prompts and tools from the plugin manager.
+   */
+  reloadPlugins() {
+    if (!this.pluginManager) {
+      return;
+    }
+    
+    // Register custom tools from plugins
+    for (const plugin of this.pluginManager.plugins.values()) {
+      if (typeof plugin.getTools === 'function') {
+        const pluginTools = plugin.getTools();
+        for (const t of pluginTools) {
+          this.tools[t.name] = t;
+        }
+      }
+    }
+    
+    this._initializeSystemPrompt();
   }
 
   /**
@@ -211,6 +250,9 @@ export class Agent {
           return `Exit Code: ${cmdRes.exitCode}\nStdout:\n${cmdRes.stdout}\nStderr:\n${cmdRes.stderr}`;
         
         default:
+          if (this.tools[tool] && typeof this.tools[tool].execute === 'function') {
+            return await this.tools[tool].execute(args);
+          }
           return `Error: Unknown tool "${tool}"`;
       }
     } catch (err) {

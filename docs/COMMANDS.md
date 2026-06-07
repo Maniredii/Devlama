@@ -32,6 +32,7 @@ DevLama CLI uses slash commands (`/`) in the interactive REPL.
 | `/edit <prompt>` | Asks the agent to edit files in the project based on your prompt. |
 | `/fix <error>` | Passes an error message to the agent to debug and fix. |
 | `/architect <prompt>` | Asks the agent to generate a high-level project architecture plan. |
+| `/auto <prompt>` | Activates Autonomous Agent Mode to plan and independently execute multi-step tasks. |
 
 ## Git Integration
 

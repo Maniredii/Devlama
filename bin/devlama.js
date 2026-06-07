@@ -43,7 +43,7 @@ async function main() {
       printBanner();
       const config = new ConfigManager();
       await config.init();
-      program.parse(process.argv);
+      await program.parseAsync(process.argv);
       return;
     }
 

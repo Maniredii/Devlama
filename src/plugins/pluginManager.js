@@ -3,10 +3,11 @@
  */
 
 import { readdir } from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
 import { join, resolve } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { dirname } from 'path';
+import { execSync } from 'child_process';
 import { Logger } from '../utils/logger.js';
 
 const logger = new Logger('plugin-manager');
@@ -50,11 +51,29 @@ export class PluginManager {
   }
 
   /**
-   * Installs a plugin (mock implementation for MVP).
+   * Installs a plugin via NPM.
    * @param {string} name 
    */
   async install(name) {
-    throw new Error(`Plugin installation from registry not yet implemented. Cannot install '${name}'.`);
+    if (!this.userDir) {
+      throw new Error('Plugins directory not configured in user config.');
+    }
+    
+    if (!existsSync(this.userDir)) {
+      mkdirSync(this.userDir, { recursive: true });
+    }
+
+    const packageName = `devlama-plugin-${name}`;
+    logger.info(`Installing plugin ${packageName}...`);
+    
+    try {
+      // Install into the user's plugin directory
+      execSync(`npm install --prefix "${this.userDir}" ${packageName}`, { stdio: 'ignore' });
+      logger.info(`Successfully installed ${packageName}.`);
+    } catch (err) {
+      logger.error(`Failed to install ${packageName}:`, err);
+      throw new Error(`Failed to install plugin '${name}'. Ensure the package '${packageName}' exists on NPM.`);
+    }
   }
 
   /**
@@ -64,7 +83,16 @@ export class PluginManager {
   uninstall(name) {
     if (this.plugins.has(name)) {
       this.plugins.delete(name);
-      // Actual file deletion would go here
+    }
+    
+    if (this.userDir && existsSync(this.userDir)) {
+      const packageName = `devlama-plugin-${name}`;
+      try {
+        execSync(`npm uninstall --prefix "${this.userDir}" ${packageName}`, { stdio: 'ignore' });
+        logger.info(`Successfully uninstalled ${packageName}.`);
+      } catch (err) {
+        logger.warn(`Failed to uninstall npm package ${packageName}: ${err.message}`);
+      }
     }
   }
 
@@ -94,9 +122,14 @@ export class PluginManager {
         if (item.isDirectory()) {
           try {
             const entryPath = join(dir, item.name, 'index.js');
-            if (existsSync(entryPath)) {
+            // If the directory was a node_module package, the entry path might be inside node_modules
+            const nodeModulesEntry = join(dir, 'node_modules', item.name, 'index.js');
+            
+            const targetPath = existsSync(nodeModulesEntry) ? nodeModulesEntry : (existsSync(entryPath) ? entryPath : null);
+
+            if (targetPath) {
               // Convert to file URL for dynamic import on Windows
-              const fileUrl = pathToFileURL(entryPath).href;
+              const fileUrl = pathToFileURL(targetPath).href;
               const module = await import(fileUrl);
               
               if (module.default) {

@@ -16,6 +16,7 @@ export function generateSystemPrompt(projectInfo, model) {
   prompt += `- If you need to create a folder, use run_command with 'mkdir'.\n`;
   prompt += `- If you need to write code, ALWAYS use the write_file tool. NEVER output large blocks of code in your response.\n`;
   prompt += `- Do not apologize or make small talk. Be direct and concise.\n`;
+  prompt += `- DO NOT hallucinate. Only provide information, code, or tool calls that you are absolutely certain are correct. If you are unsure, use the read_file or run_command tools to gather context rather than guessing. Do not invent files, APIs, or data that do not exist.\n`;
 
   // Tools instruction
   prompt += `\nTOOLS:\n`;
