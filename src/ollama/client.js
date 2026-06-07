@@ -52,6 +52,10 @@ export class OllamaClient {
       options: this._buildOptions(options),
     };
 
+    if (options.keepAlive !== undefined) {
+      body.keep_alive = options.keepAlive;
+    }
+
     logger.debug(`chat() model=${model} messages=${messages.length}`);
     const res = await this._request('POST', '/api/chat', body);
 
@@ -81,6 +85,10 @@ export class OllamaClient {
       stream: true,
       options: this._buildOptions(options),
     };
+
+    if (options.keepAlive !== undefined) {
+      body.keep_alive = options.keepAlive;
+    }
 
     logger.debug(`streamChat() model=${model}`);
 
@@ -155,6 +163,10 @@ export class OllamaClient {
       options: this._buildOptions(options),
     };
 
+    if (options.keepAlive !== undefined) {
+      body.keep_alive = options.keepAlive;
+    }
+
     const res = await this._request('POST', '/api/generate', body);
     return res.response ?? '';
   }
@@ -220,6 +232,12 @@ export class OllamaClient {
     }
     if (options.seed !== undefined) {
       defaults.seed = options.seed;
+    }
+    if (options.numGpu !== undefined) {
+      defaults.num_gpu = options.numGpu;
+    }
+    if (options.numThread !== undefined) {
+      defaults.num_thread = options.numThread;
     }
 
     return defaults;
