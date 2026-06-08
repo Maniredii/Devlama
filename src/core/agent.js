@@ -12,6 +12,8 @@ import { Terminal } from '../tools/terminal.js';
 import { SemanticCache } from './semanticCache.js';
 import { startSpinner, stopSpinner } from '../cli/ui.js';
 import chalk from 'chalk';
+import fs from 'fs';
+import path from 'path';
 
 const logger = new Logger('agent');
 
@@ -103,6 +105,130 @@ export class Agent {
     };
   }
 
+  async resolveMentions(userInput) {
+    const projectPath = this.session?.projectPath ?? process.cwd();
+    const fileTree = this.session?.projectInfo?.fileTree;
+
+    const fileRegex = /@([a-zA-Z0-9_\-\.\/\\:]+)/g;
+    const folderRegex = /#([a-zA-Z0-9_\-\.\/\\:]+)/g;
+
+    const fileMentions = [...new Set([...userInput.matchAll(fileRegex)].map(m => m[1]))];
+    const folderMentions = [...new Set([...userInput.matchAll(folderRegex)].map(m => m[1]))];
+
+    let resolvedText = userInput;
+    let attachmentsText = '';
+
+    for (const rawPath of fileMentions) {
+      const resolvedPath = await this._resolvePath(rawPath, projectPath, fileTree, false);
+      if (resolvedPath) {
+        try {
+          const content = await fs.promises.readFile(resolvedPath, 'utf-8');
+          const linesCount = content.split('\n').length;
+          const rel = path.relative(projectPath, resolvedPath).replace(/\\/g, '/');
+          console.log(chalk.gray(`  📎 Attached file: ${rel} (${linesCount} lines)`));
+          attachmentsText += `\n\n[ATTACHED FILE: ${rel}]\n\`\`\`\n${content}\n\`\`\``;
+        } catch (err) {
+          console.log(chalk.red(`  ⚠️  Failed to read file @${rawPath}: ${err.message}`));
+        }
+      } else {
+        console.log(chalk.yellow(`  ⚠️  Could not find file: @${rawPath}`));
+      }
+    }
+
+    for (const rawPath of folderMentions) {
+      const resolvedPath = await this._resolvePath(rawPath, projectPath, fileTree, true);
+      if (resolvedPath) {
+        try {
+          const rel = path.relative(projectPath, resolvedPath).replace(/\\/g, '/');
+          const items = await fs.promises.readdir(resolvedPath, { withFileTypes: true });
+          const IGNORE_DIRS = new Set([
+            'node_modules', '.git', '.svn', 'dist', 'build', 'out', '.next',
+            '__pycache__', '.venv', 'venv', 'env', '.env', 'target',
+            'vendor', 'coverage', '.nyc_output', '.cache', 'tmp', 'temp'
+          ]);
+          const listed = items
+            .filter(item => !IGNORE_DIRS.has(item.name) && !item.name.startsWith('.'))
+            .map(item => `  - ${item.name}${item.isDirectory() ? '/' : ''}`)
+            .join('\n');
+
+          console.log(chalk.gray(`  📁 Attached folder: ${rel}/ (${items.length} items)`));
+          attachmentsText += `\n\n[ATTACHED FOLDER: ${rel}/]\nContents:\n${listed || '  (empty)'}`;
+        } catch (err) {
+          console.log(chalk.red(`  ⚠️  Failed to read folder #${rawPath}: ${err.message}`));
+        }
+      } else {
+        console.log(chalk.yellow(`  ⚠️  Could not find folder: #${rawPath}`));
+      }
+    }
+
+    if (attachmentsText) {
+      resolvedText += attachmentsText;
+    }
+
+    return resolvedText;
+  }
+
+  async _resolvePath(rawPath, projectPath, fileTree, isDirTarget) {
+    // 1. Direct match relative or absolute
+    if (fs.existsSync(rawPath)) {
+      const stat = fs.statSync(rawPath);
+      if (isDirTarget === stat.isDirectory()) return rawPath;
+    }
+    const relativeToProj = path.join(projectPath, rawPath);
+    if (fs.existsSync(relativeToProj)) {
+      const stat = fs.statSync(relativeToProj);
+      if (isDirTarget === stat.isDirectory()) return relativeToProj;
+    }
+
+    // 2. Search in scanned fileTree
+    if (fileTree && Array.isArray(fileTree)) {
+      const matched = fileTree.find(f => {
+        const pathMatches = f.path === rawPath || f.name === rawPath || f.path.endsWith('/' + rawPath) || f.path.endsWith('\\' + rawPath);
+        return pathMatches && (isDirTarget === f.isDir);
+      });
+      if (matched) {
+        return path.join(projectPath, matched.path);
+      }
+    }
+
+    // 3. Fallback: recursive search
+    const targetName = path.basename(rawPath);
+    return await this._findInDir(projectPath, targetName, isDirTarget);
+  }
+
+  async _findInDir(currentDir, targetName, isDirTarget) {
+    const IGNORE_DIRS = new Set([
+      'node_modules', '.git', '.svn', 'dist', 'build', 'out', '.next',
+      '__pycache__', '.venv', 'venv', 'env', '.env', 'target',
+      'vendor', 'coverage', '.nyc_output', '.cache', 'tmp', 'temp'
+    ]);
+
+    let entries;
+    try {
+      entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+    } catch {
+      return null;
+    }
+
+    for (const entry of entries) {
+      if (IGNORE_DIRS.has(entry.name) || entry.name.startsWith('.')) {
+        continue;
+      }
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.name.toLowerCase() === targetName.toLowerCase()) {
+        const isDir = entry.isDirectory();
+        if (isDirTarget === isDir) {
+          return fullPath;
+        }
+      }
+      if (entry.isDirectory()) {
+        const found = await this._findInDir(fullPath, targetName, isDirTarget);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
   /**
    * Manually adds a user message to the memory context.
    * @param {string} text 
@@ -128,7 +254,8 @@ export class Agent {
    * @returns {Promise<string>}
    */
   async run(userInput) {
-    this.memory.addMessage('user', userInput);
+    const processedInput = await this.resolveMentions(userInput);
+    this.memory.addMessage('user', processedInput);
 
     // ── Semantic cache check ──────────────────────────────────────────────
     const cacheResult = await this.cache.lookup(userInput);
@@ -193,7 +320,8 @@ export class Agent {
    * @param {(token: string) => void} onToken 
    */
   async runStreaming(userInput, onToken) {
-    this.memory.addMessage('user', userInput);
+    const processedInput = await this.resolveMentions(userInput);
+    this.memory.addMessage('user', processedInput);
 
     // ── Semantic cache check ──────────────────────────────────────────────
     const cacheResult = await this.cache.lookup(userInput);

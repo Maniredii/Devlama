@@ -7,6 +7,8 @@ import { OllamaConnectionError } from '../../../src/ollama/client.js';
 import { Agent } from '../../../src/core/agent.js';
 import { Planner } from '../../../src/core/planner.js';
 import { MemoryManager } from '../../../src/core/memory.js';
+import fs from 'fs';
+import path from 'path';
 
 describe('Performance Upgrades', () => {
   describe('ModelManager Quantization Detection', () => {
@@ -271,6 +273,79 @@ describe('Performance Upgrades', () => {
           contextSize: 2048
         })
       );
+    });
+  });
+
+  describe('File & Folder Mentions', () => {
+    const TEST_MENTIONS_DIR = path.join(process.cwd(), 'tests', 'temp_mentions_dir');
+    let agent;
+
+    beforeAll(() => {
+      fs.mkdirSync(TEST_MENTIONS_DIR, { recursive: true });
+      fs.writeFileSync(path.join(TEST_MENTIONS_DIR, 'test_file.txt'), 'Hello world from test file!');
+      fs.mkdirSync(path.join(TEST_MENTIONS_DIR, 'sub_dir'), { recursive: true });
+      fs.writeFileSync(path.join(TEST_MENTIONS_DIR, 'sub_dir', 'inner.txt'), 'Inner content');
+    });
+
+    afterAll(() => {
+      fs.rmSync(TEST_MENTIONS_DIR, { recursive: true, force: true });
+    });
+
+    beforeEach(() => {
+      const mockConfig = {
+        get: jest.fn(() => null)
+      };
+      const mockClient = {
+        chat: jest.fn(),
+        streamChat: jest.fn()
+      };
+      const mockMemory = {
+        setSystemPrompt: jest.fn(),
+        addMessage: jest.fn()
+      };
+      const mockSession = {
+        projectPath: TEST_MENTIONS_DIR,
+        projectInfo: {
+          fileTree: [
+            { path: 'test_file.txt', isDir: false, name: 'test_file.txt' },
+            { path: 'sub_dir', isDir: true, name: 'sub_dir' },
+            { path: 'sub_dir/inner.txt', isDir: false, name: 'inner.txt' }
+          ]
+        }
+      };
+
+      agent = new Agent({
+        client: mockClient,
+        memory: mockMemory,
+        session: mockSession,
+        config: mockConfig,
+        currentModel: { name: 'qwen:0.5b', isSmall: true }
+      });
+    });
+
+    test('resolveMentions() replaces @file references with actual content', async () => {
+      const input = 'Please review @test_file.txt';
+      const output = await agent.resolveMentions(input);
+
+      expect(output).toContain('Please review @test_file.txt');
+      expect(output).toContain('[ATTACHED FILE: test_file.txt]');
+      expect(output).toContain('Hello world from test file!');
+    });
+
+    test('resolveMentions() replaces #folder references with directory listings', async () => {
+      const input = 'Check directory #sub_dir';
+      const output = await agent.resolveMentions(input);
+
+      expect(output).toContain('Check directory #sub_dir');
+      expect(output).toContain('[ATTACHED FOLDER: sub_dir/]');
+      expect(output).toContain('- inner.txt');
+    });
+
+    test('resolveMentions() handles non-existent file/folder references gracefully', async () => {
+      const input = 'Check @nonexistent.txt and #nonexistent_dir';
+      const output = await agent.resolveMentions(input);
+
+      expect(output).toBe(input);
     });
   });
 });
