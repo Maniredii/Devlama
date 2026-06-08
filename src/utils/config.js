@@ -20,6 +20,25 @@ const DEFAULT_CONFIG = {
   historySize: 100,
   smallModelThreshold: 4, // billions of params — below this = small model mode
   debug: false,
+
+  // ── Semantic Cache ──────────────────────────────────────────────────────
+  cacheEnabled: true,
+  cacheSimilarityThreshold: 0.92,
+  cacheTTLMinutes: 30,
+  cacheMaxSize: 100,
+
+  // ── Context Optimization ────────────────────────────────────────────────
+  contextOptimizationEnabled: true,
+  contextBudgetThreshold: 0.75, // Trigger summarization at 75% budget usage
+
+  // ── Connection Pool ─────────────────────────────────────────────────────
+  ollamaHosts: null, // Array of host URLs for multi-host pooling (e.g. ["http://localhost:11434", "http://192.168.1.10:11434"])
+  maxConcurrentRequests: 2,
+
+  // ── Performance Upgrades ──────────────────────────────────────────────────
+  keepAlive: '15m',  // Keep model loaded in memory for 15 minutes
+  numGpu: null,      // Offloaded GPU layers (null for auto)
+  numThread: null,   // Decoder threads (null for auto)
 };
 
 export class ConfigManager {

@@ -313,7 +313,11 @@ export class CommandDispatcher {
       return null;
     }
 
-    await this.agent.run(`/edit: ${description}`);
+    console.log(chalk.bold.cyan('\nAssistant: '));
+    const { printToken, endStream } = await import('./ui.js');
+    await this.agent.runStreaming(`/edit: ${description}`, (token) => printToken(token));
+    endStream();
+    console.log();
     return null;
   }
 
@@ -324,7 +328,11 @@ export class CommandDispatcher {
       return null;
     }
 
-    await this.agent.run(`/fix: ${error}`);
+    console.log(chalk.bold.cyan('\nAssistant: '));
+    const { printToken, endStream } = await import('./ui.js');
+    await this.agent.runStreaming(`/fix: ${error}`, (token) => printToken(token));
+    endStream();
+    console.log();
     return null;
   }
 
@@ -335,7 +343,11 @@ export class CommandDispatcher {
       return null;
     }
 
-    await this.agent.run(`/architect: ${description}`);
+    console.log(chalk.bold.cyan('\nAssistant: '));
+    const { printToken, endStream } = await import('./ui.js');
+    await this.agent.runStreaming(`/architect: ${description}`, (token) => printToken(token));
+    endStream();
+    console.log();
     return null;
   }
 
@@ -540,7 +552,7 @@ export class CommandDispatcher {
 
     const { Planner } = await import('../core/planner.js');
     const { startSpinner, stopSpinner, printDivider } = await import('./ui.js');
-    const planner = new Planner(this.client);
+    const planner = new Planner(this.client, this.config);
 
     startSpinner('Generating autonomous execution plan...');
     try {

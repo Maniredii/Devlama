@@ -3,22 +3,37 @@
  */
 
 import { estimateTokens, truncateToTokens } from '../utils/helpers.js';
+import { ContextOptimizer } from './contextOptimizer.js';
+import { Logger } from '../utils/logger.js';
+
+const logger = new Logger('memory');
 
 export class MemoryManager {
   /**
    * @param {import('../utils/config.js').ConfigManager} config
    * @param {import('../ollama/models.js').ModelInfo} currentModel
+   * @param {import('../ollama/client.js').OllamaClient} [client] - Required for context optimization
    */
-  constructor(config, currentModel) {
+  constructor(config, currentModel, client = null) {
     this.config = config;
     this.currentModel = currentModel;
+    this.client = client;
     
     // Config values
-    this.maxContextTokens = config.get('contextWindowTokens') ?? 4096;
+    this.maxContextTokens = currentModel.isSmall ? 2048 : (config.get('contextWindowTokens') ?? 4096);
     
     // In-memory state
     this._messages = []; // { role, content, tokens }
     this._systemPrompt = null; // { role: 'system', content, tokens }
+    this._optimizing = false; // Prevent concurrent optimization
+
+    // Context optimizer (only if client is provided and feature is enabled)
+    this._optimizer = null;
+    if (client && config.get('contextOptimizationEnabled') !== false) {
+      this._optimizer = new ContextOptimizer(client, {
+        budgetThreshold: config.get('contextBudgetThreshold') ?? 0.75,
+      });
+    }
   }
 
   /**
@@ -52,6 +67,9 @@ export class MemoryManager {
    * @returns {import('../ollama/client.js').ChatMessage[]}
    */
   getContext() {
+    // Trigger async optimization if needed (runs in background, result used next time)
+    this._maybeOptimize();
+
     let budget = this.maxContextTokens;
     const context = [];
 
@@ -100,6 +118,7 @@ export class MemoryManager {
    */
   updateModel(newModel) {
     this.currentModel = newModel;
+    this.maxContextTokens = newModel.isSmall ? 2048 : (this.config.get('contextWindowTokens') ?? 4096);
   }
 
   /**
@@ -124,5 +143,38 @@ export class MemoryManager {
    */
   clear() {
     this._messages = [];
+  }
+
+  // ─── Context Optimization ──────────────────────────────────────────────────
+
+  /**
+   * Checks if context optimization should run, and triggers it asynchronously.
+   * The optimized result will be used on the *next* call to getContext().
+   */
+  _maybeOptimize() {
+    if (!this._optimizer || this._optimizing) {
+      return;
+    }
+
+    const totalTokens = this._messages.reduce((acc, m) => acc + m.tokens, 0);
+    const systemTokens = this._systemPrompt ? this._systemPrompt.tokens : 0;
+    const usedTokens = totalTokens + systemTokens;
+
+    if (this._optimizer.shouldOptimize(usedTokens, this.maxContextTokens, this._messages.length)) {
+      this._optimizing = true;
+      logger.debug('Context optimization triggered');
+
+      this._optimizer
+        .optimize(this._messages, this.currentModel.name)
+        .then((optimized) => {
+          this._messages = optimized;
+          this._optimizing = false;
+          logger.debug(`Context optimized: ${optimized.length} messages remaining`);
+        })
+        .catch((err) => {
+          this._optimizing = false;
+          logger.debug(`Context optimization failed: ${err.message}`);
+        });
+    }
   }
 }

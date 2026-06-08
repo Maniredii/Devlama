@@ -7,6 +7,7 @@ import readline from 'readline';
 import chalk from 'chalk';
 import { ModelManager } from '../ollama/models.js';
 import { OllamaClient } from '../ollama/client.js';
+import { createClientFromConfig } from '../core/connectionPool.js';
 import { Agent } from '../core/agent.js';
 import { SessionManager } from '../core/session.js';
 import { MemoryManager } from '../core/memory.js';
@@ -34,7 +35,14 @@ const logger = new Logger('prompt');
  * @returns {Promise<{ client, modelManager, models, currentModel, session, memory, agent, dispatcher }>}
  */
 async function bootstrap(config, serverInfo) {
-  const client = new OllamaClient(serverInfo.host);
+  // Use connection pool if multiple hosts are configured, otherwise plain client
+  let client;
+  const configuredHosts = config.get('ollamaHosts');
+  if (configuredHosts && Array.isArray(configuredHosts) && configuredHosts.length > 1) {
+    client = createClientFromConfig(config);
+  } else {
+    client = new OllamaClient(serverInfo.host);
+  }
   const modelManager = new ModelManager(client);
 
   // Fetch and select model
@@ -56,7 +64,7 @@ async function bootstrap(config, serverInfo) {
   const session = new SessionManager(config);
   await session.init();
 
-  const memory = new MemoryManager(config, currentModel);
+  const memory = new MemoryManager(config, currentModel, client);
   const pluginManager = new PluginManager(config);
   const agent = new Agent({ client, memory, session, config, currentModel, pluginManager });
   const dispatcher = new CommandDispatcher({ agent, session, memory, config, client, modelManager, pluginManager });

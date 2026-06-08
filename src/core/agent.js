@@ -9,6 +9,7 @@ import { Logger } from '../utils/logger.js';
 import { FileReader } from '../tools/fileReader.js';
 import { FileWriter } from '../tools/fileWriter.js';
 import { Terminal } from '../tools/terminal.js';
+import { SemanticCache } from './semanticCache.js';
 import { startSpinner, stopSpinner } from '../cli/ui.js';
 import chalk from 'chalk';
 
@@ -32,6 +33,14 @@ export class Agent {
       write_file: new FileWriter({ autoApprove: this.config.get('autoApprove') }),
       run_command: new Terminal({ cwd: this.session.projectPath ?? process.cwd() }),
     };
+
+    // Initialize semantic cache
+    this.cache = new SemanticCache(this.client, {
+      enabled: this.config.get('cacheEnabled') ?? true,
+      similarityThreshold: this.config.get('cacheSimilarityThreshold') ?? 0.92,
+      ttlMinutes: this.config.get('cacheTTLMinutes') ?? 30,
+      maxSize: this.config.get('cacheMaxSize') ?? 100,
+    });
 
     this._initializeSystemPrompt();
   }
@@ -84,6 +93,16 @@ export class Agent {
     this._initializeSystemPrompt();
   }
 
+  _getCommonOptions(customContextSize = null) {
+    const contextSize = customContextSize ?? (this.currentModel.isSmall ? 2048 : (this.config.get('contextWindowTokens') ?? 4096));
+    return {
+      numGpu: this.config.get('numGpu'),
+      numThread: this.config.get('numThread'),
+      keepAlive: this.config.get('keepAlive'),
+      contextSize,
+    };
+  }
+
   /**
    * Manually adds a user message to the memory context.
    * @param {string} text 
@@ -99,7 +118,7 @@ export class Agent {
    */
   async generateCommitMessage(diff) {
     const prompt = `Generate a concise, conventional git commit message for the following diff. Only output the commit message, no explanations.\n\n${diff}`;
-    const response = await this.client.chat(this.currentModel.name, [{ role: 'user', content: prompt }]);
+    const response = await this.client.chat(this.currentModel.name, [{ role: 'user', content: prompt }], this._getCommonOptions(2048));
     return response.content.trim();
   }
 
@@ -110,6 +129,15 @@ export class Agent {
    */
   async run(userInput) {
     this.memory.addMessage('user', userInput);
+
+    // ── Semantic cache check ──────────────────────────────────────────────
+    const cacheResult = await this.cache.lookup(userInput);
+    if (cacheResult.hit) {
+      logger.debug(`Cache hit (similarity=${cacheResult.similarity?.toFixed(3)})`);
+      this.memory.addMessage('assistant', cacheResult.response);
+      return cacheResult.response;
+    }
+
     let iterations = 0;
     const maxIterations = 10;
 
@@ -117,13 +145,31 @@ export class Agent {
       iterations++;
       const context = this.memory.getContext();
       
-      const response = await this.client.chat(this.currentModel.name, context);
-      const text = response.content;
+      // Use streaming internally for faster time-to-first-byte.
+      // Ollama's streaming mode starts generating immediately,
+      // whereas non-streaming waits for the full response.
+      let text = '';
+      try {
+        text = await this.client.streamChat(
+          this.currentModel.name,
+          context,
+          () => {},  // Silently accumulate (no token output)
+          () => {},   // No-op onDone
+          this._getCommonOptions()
+        );
+      } catch {
+        // Fallback to non-streaming if streamChat fails
+        const response = await this.client.chat(this.currentModel.name, context, this._getCommonOptions());
+        text = response.content;
+      }
 
       this.memory.addMessage('assistant', text);
 
       if (hasFinalAnswer(text)) {
-        return parseFinalAnswer(text) || text; // Fallback to raw text if parsing fails slightly
+        const answer = parseFinalAnswer(text) || text;
+        // Store in cache for future similar queries
+        await this.cache.store(userInput, answer);
+        return answer;
       }
 
       if (hasToolCall(text)) {
@@ -132,6 +178,7 @@ export class Agent {
       } else {
         // Model didn't call a tool and didn't output final answer.
         // We'll treat it as a conversational final answer.
+        await this.cache.store(userInput, text);
         return text;
       }
     }
@@ -147,7 +194,25 @@ export class Agent {
    */
   async runStreaming(userInput, onToken) {
     this.memory.addMessage('user', userInput);
+
+    // ── Semantic cache check ──────────────────────────────────────────────
+    const cacheResult = await this.cache.lookup(userInput);
+    if (cacheResult.hit) {
+      logger.debug(`Stream cache hit (similarity=${cacheResult.similarity?.toFixed(3)})`);
+      // Simulate streaming by emitting the cached response with a prefix
+      onToken(chalk.gray('[cached] '));
+      onToken(cacheResult.response);
+      this.memory.addMessage('assistant', cacheResult.response);
+      return;
+    }
+
     await this.continueStreaming(onToken);
+
+    // Cache the final response (last assistant message)
+    const lastMsg = this.memory._messages[this.memory._messages.length - 1];
+    if (lastMsg && lastMsg.role === 'assistant') {
+      await this.cache.store(userInput, lastMsg.content);
+    }
   }
 
   /**
@@ -197,7 +262,8 @@ export class Agent {
         if (spinnerStarted) {
           stopSpinner('stop');
         }
-      }
+      },
+      this._getCommonOptions()
     );
 
     this.memory.addMessage('assistant', fullText);

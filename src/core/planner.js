@@ -10,9 +10,11 @@ const logger = new Logger('planner');
 export class Planner {
   /**
    * @param {import('../ollama/client.js').OllamaClient} client 
+   * @param {import('../utils/config.js').ConfigManager} [config]
    */
-  constructor(client) {
+  constructor(client, config = null) {
     this.client = client;
+    this.config = config;
   }
 
   /**
@@ -27,10 +29,19 @@ export class Planner {
 
     const prompt = generatePlanningPrompt(userInput, projectInfo);
     
-    // We use generate (raw completion) instead of chat for simpler structural output
-    const response = await this.client.generate(model.name, prompt, {
+    const options = {
       temperature: 0.1, // Low temperature for deterministic planning
-    });
+    };
+
+    if (this.config) {
+      options.numGpu = this.config.get('numGpu');
+      options.numThread = this.config.get('numThread');
+      options.keepAlive = this.config.get('keepAlive');
+      options.contextSize = model.isSmall ? 2048 : (this.config.get('contextWindowTokens') ?? 4096);
+    }
+
+    // We use generate (raw completion) instead of chat for simpler structural output
+    const response = await this.client.generate(model.name, prompt, options);
 
     return this._parsePlan(response);
   }

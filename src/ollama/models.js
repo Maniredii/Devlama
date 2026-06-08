@@ -39,6 +39,26 @@ const LARGE_MODEL_PATTERNS = [
   /mixtral/i,
 ];
 
+/**
+ * Quantization patterns for detecting model precision level.
+ * Ordered from fastest/smallest to slowest/largest.
+ */
+const QUANTIZATION_PATTERNS = [
+  { pattern: /[_-]?Q2[_-]?K/i,    label: 'Q2_K',    tier: 'fast',      warning: 'Very low quality, fastest speed' },
+  { pattern: /[_-]?Q3[_-]?K/i,    label: 'Q3_K',    tier: 'fast',      warning: null },
+  { pattern: /[_-]?Q4[_-]?0/i,    label: 'Q4_0',    tier: 'fast',      warning: null },
+  { pattern: /[_-]?Q4[_-]?K[_-]?M/i, label: 'Q4_K_M', tier: 'recommended', warning: null },
+  { pattern: /[_-]?Q4[_-]?K[_-]?S/i, label: 'Q4_K_S', tier: 'recommended', warning: null },
+  { pattern: /[_-]?Q4[_-]?1/i,    label: 'Q4_1',    tier: 'fast',      warning: null },
+  { pattern: /[_-]?Q5[_-]?0/i,    label: 'Q5_0',    tier: 'balanced',  warning: null },
+  { pattern: /[_-]?Q5[_-]?K[_-]?M/i, label: 'Q5_K_M', tier: 'balanced', warning: null },
+  { pattern: /[_-]?Q5[_-]?K[_-]?S/i, label: 'Q5_K_S', tier: 'balanced', warning: null },
+  { pattern: /[_-]?Q6[_-]?K/i,    label: 'Q6_K',    tier: 'quality',   warning: null },
+  { pattern: /[_-]?Q8[_-]?0/i,    label: 'Q8_0',    tier: 'quality',   warning: 'High quality but uses 2x memory vs Q4' },
+  { pattern: /[_-]?F16|FP16/i,    label: 'FP16',    tier: 'slow',      warning: '⚠️  Full precision — very slow & memory-heavy. Consider using Q4_K_M for 3-4x faster speed with minimal quality loss.' },
+  { pattern: /[_-]?F32|FP32/i,    label: 'FP32',    tier: 'slow',      warning: '⚠️  FP32 — extremely slow. Strongly recommend Q4_K_M or Q5_K_M.' },
+];
+
 export class ModelManager {
   /**
    * @param {OllamaClient} client
@@ -107,8 +127,10 @@ export class ModelManager {
     list.forEach((m, i) => {
       const sizeLabel = this._sizeLabel(m.size);
       const classLabel = this._classLabel(m.sizeClass);
+      const quantLabel = m.quantization ? chalk.gray(` [${m.quantization}]`) : '';
+      const tierLabel = m.performanceTier ? this._tierLabel(m.performanceTier) : '';
       console.log(
-        `  ${chalk.bold.white(`[${i + 1}]`)} ${chalk.green(m.name.padEnd(30))} ${sizeLabel} ${classLabel}`
+        `  ${chalk.bold.white(`[${i + 1}]`)} ${chalk.green(m.name.padEnd(30))} ${sizeLabel} ${classLabel}${quantLabel} ${tierLabel}`
       );
     });
 
@@ -127,6 +149,7 @@ export class ModelManager {
         // By number
         const num = parseInt(trimmed, 10);
         if (!isNaN(num) && num >= 1 && num <= list.length) {
+          this._warnQuantization(list[num - 1]);
           resolve(list[num - 1]);
           return;
         }
@@ -136,6 +159,7 @@ export class ModelManager {
           (m) => m.name === trimmed || m.name.startsWith(trimmed)
         );
         if (byName) {
+          this._warnQuantization(byName);
           resolve(byName);
           return;
         }
@@ -159,18 +183,20 @@ export class ModelManager {
     console.log(chalk.bold.cyan('\n📦 Installed Ollama Models:\n'));
     console.log(
       chalk.gray(
-        `  ${'#'.padEnd(4)}${'Name'.padEnd(35)}${'Size'.padEnd(12)}${'Class'.padEnd(10)}Modified`
+        `  ${'#'.padEnd(4)}${'Name'.padEnd(35)}${'Size'.padEnd(12)}${'Class'.padEnd(10)}${'Quant'.padEnd(10)}${'Speed'.padEnd(14)}Modified`
       )
     );
-    console.log(chalk.gray('  ' + '─'.repeat(75)));
+    console.log(chalk.gray('  ' + '─'.repeat(95)));
 
     models.forEach((m, i) => {
       const num = chalk.gray(`${i + 1}.`.padEnd(4));
       const name = chalk.green(m.name.padEnd(35));
       const size = chalk.white(this._sizeLabel(m.size).padEnd(12));
       const cls = this._classLabel(m.sizeClass).padEnd(10);
+      const quant = (m.quantization ? chalk.white(m.quantization) : chalk.gray('default')).padEnd(10);
+      const tier = m.performanceTier ? this._tierLabel(m.performanceTier).padEnd(14) : chalk.gray('—').padEnd(14);
       const modified = chalk.gray(new Date(m.modifiedAt).toLocaleDateString());
-      console.log(`  ${num}${name}${size}${cls}${modified}`);
+      console.log(`  ${num}${name}${size}${cls}${quant} ${tier}${modified}`);
     });
 
     console.log();
@@ -180,6 +206,7 @@ export class ModelManager {
 
   _enrichModel(raw) {
     const sizeClass = this.classifySize(raw.name);
+    const quantInfo = this.detectQuantization(raw.name);
     return {
       name: raw.name,
       size: raw.size ?? 0,
@@ -188,6 +215,9 @@ export class ModelManager {
       sizeClass,
       isSmall: sizeClass === 'small',
       isLarge: sizeClass === 'large',
+      quantization: quantInfo?.label ?? null,
+      performanceTier: quantInfo?.tier ?? null,
+      quantizationWarning: quantInfo?.warning ?? null,
     };
   }
 
@@ -209,8 +239,49 @@ export class ModelManager {
         return chalk.blue('medium');
     }
   }
+
+  /**
+   * Detects quantization level from a model name.
+   * @param {string} modelName
+   * @returns {{ label: string, tier: string, warning: string | null } | null}
+   */
+  detectQuantization(modelName) {
+    for (const entry of QUANTIZATION_PATTERNS) {
+      if (entry.pattern.test(modelName)) {
+        return { label: entry.label, tier: entry.tier, warning: entry.warning };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Prints a warning if the selected model is FP16/FP32.
+   * @param {ModelInfo} model
+   */
+  _warnQuantization(model) {
+    if (model.quantizationWarning) {
+      console.log(chalk.yellow(`\n  ${model.quantizationWarning}`));
+      console.log(chalk.gray(`  Tip: Run 'ollama pull ${model.name.split(':')[0]}:q4_K_M' for a faster alternative.\n`));
+    }
+  }
+
+  /**
+   * Returns a colored label for a performance tier.
+   * @param {string} tier
+   * @returns {string}
+   */
+  _tierLabel(tier) {
+    switch (tier) {
+      case 'recommended': return chalk.green('⚡ fast');
+      case 'fast':        return chalk.green('⚡ fast');
+      case 'balanced':    return chalk.cyan('⚖️  balanced');
+      case 'quality':     return chalk.yellow('🎯 quality');
+      case 'slow':        return chalk.red('🐢 slow');
+      default:            return chalk.gray('—');
+    }
+  }
 }
 
 /**
- * @typedef {{ name: string, size: number, digest: string, modifiedAt: string, sizeClass: 'small'|'medium'|'large', isSmall: boolean, isLarge: boolean }} ModelInfo
+ * @typedef {{ name: string, size: number, digest: string, modifiedAt: string, sizeClass: 'small'|'medium'|'large', isSmall: boolean, isLarge: boolean, quantization: string|null, performanceTier: string|null, quantizationWarning: string|null }} ModelInfo
  */
